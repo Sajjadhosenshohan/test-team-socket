@@ -1,8 +1,33 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Send, Users, MessageSquare, FileText, X, Trash2, Download, Plus, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Send, Users, MessageSquare, FileText, X, Trash2, Download, Plus, Loader2, Bold, Italic, Underline, Type, Heading1, Heading2, List, ListOrdered, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
+import { z } from 'zod';
+
+// Lexical imports
+import { LexicalComposer } from '@lexical/react/LexicalComposer';
+import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin';
+import { ContentEditable } from '@lexical/react/LexicalContentEditable';
+import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin';
+import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin';
+import { LexicalErrorBoundary } from '@lexical/react/LexicalErrorBoundary';
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
+import { HeadingNode, QuoteNode } from '@lexical/rich-text';
+import { ListItemNode, ListNode } from '@lexical/list';
+import { ListPlugin } from '@lexical/react/LexicalListPlugin';
+import { 
+    $getSelection, 
+    $isRangeSelection,
+    FORMAT_TEXT_COMMAND,
+    FORMAT_ELEMENT_COMMAND,
+    UNDO_COMMAND,
+    REDO_COMMAND,
+    $createParagraphNode,
+    EditorState as LexicalEditorState
+} from 'lexical';
+import { $setBlocksType } from '@lexical/selection';
+import { $createHeadingNode } from '@lexical/rich-text';
 
 // Import server actions
 import { createSolicitationDoc, getDocComments, getTeamDocs, getUserInfo } from '../actions/solicitation.actions';
@@ -21,8 +46,6 @@ import {
     setupSocketHandlers 
 } from '../helper/socketHelpers';
 import { 
-    addCommentOptimistically, 
-    createTempComment, 
     handleCommentAdded, 
     isTempComment, 
     removeCommentOptimistically, 
@@ -31,11 +54,261 @@ import {
 import { createNewDocument, selectDocument } from '../helper/documentHelpers';
 import { formatDate } from '../helper/dateHelpers';
 
+// Zod schema for document content validation
+const documentContentSchema = z.string().max(500000, "Document content too large");
+
+// Lexical theme configuration
+const theme = {
+    paragraph: 'mb-2',
+    heading: {
+        h1: 'text-3xl font-bold mb-4',
+        h2: 'text-2xl font-bold mb-3',
+        h3: 'text-xl font-bold mb-2',
+    },
+    list: {
+        ul: 'list-disc ml-6 mb-2',
+        ol: 'list-decimal ml-6 mb-2',
+        listitem: 'mb-1',
+    },
+    text: {
+        bold: 'font-bold',
+        italic: 'italic',
+        underline: 'underline',
+        strikethrough: 'line-through',
+    },
+};
+
+// Toolbar Plugin
+function ToolbarPlugin() {
+    const [editor] = useLexicalComposerContext();
+    const [isBold, setIsBold] = useState(false);
+    const [isItalic, setIsItalic] = useState(false);
+    const [isUnderline, setIsUnderline] = useState(false);
+    const [textColor, setTextColor] = useState('#000000');
+
+    const updateToolbar = useCallback(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+            setIsBold(selection.hasFormat('bold'));
+            setIsItalic(selection.hasFormat('italic'));
+            setIsUnderline(selection.hasFormat('underline'));
+        }
+    }, []);
+
+    useEffect(() => {
+        return editor.registerUpdateListener(({ editorState }) => {
+            editorState.read(() => {
+                updateToolbar();
+            });
+        });
+    }, [editor, updateToolbar]);
+
+    const formatText = (format: string) => {
+        editor.dispatchCommand(FORMAT_TEXT_COMMAND, format);
+    };
+
+    const formatHeading = (headingSize: 'h1' | 'h2') => {
+        editor.update(() => {
+            const selection = $getSelection();
+            if ($isRangeSelection(selection)) {
+                $setBlocksType(selection, () => $createHeadingNode(headingSize));
+            }
+        });
+    };
+
+    const formatParagraph = () => {
+        editor.update(() => {
+            const selection = $getSelection();
+            if ($isRangeSelection(selection)) {
+                $setBlocksType(selection, () => $createParagraphNode());
+            }
+        });
+    };
+
+    const formatAlignment = (alignment: 'left' | 'center' | 'right') => {
+        editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, alignment);
+    };
+
+    const applyTextColor = (color: string) => {
+        editor.update(() => {
+            const selection = $getSelection();
+            if ($isRangeSelection(selection)) {
+                const style = `color: ${color}`;
+                selection.getNodes().forEach((node) => {
+                    if (node.getType() === 'text') {
+                        node.setStyle(style);
+                    }
+                });
+            }
+        });
+        setTextColor(color);
+    };
+
+    return (
+        <div className="flex items-center gap-1 p-2 border-b border-slate-200 bg-slate-50 flex-wrap">
+            {/* Undo/Redo */}
+            <button
+                onClick={() => editor.dispatchCommand(UNDO_COMMAND, undefined)}
+                className="p-2 hover:bg-slate-200 rounded"
+                title="Undo"
+            >
+                ↶
+            </button>
+            <button
+                onClick={() => editor.dispatchCommand(REDO_COMMAND, undefined)}
+                className="p-2 hover:bg-slate-200 rounded"
+                title="Redo"
+            >
+                ↷
+            </button>
+
+            <div className="w-px h-6 bg-slate-300 mx-1"></div>
+
+            {/* Headings */}
+            <button
+                onClick={formatParagraph}
+                className="p-2 hover:bg-slate-200 rounded flex items-center gap-1"
+                title="Normal Text"
+            >
+                <Type className="w-4 h-4" />
+            </button>
+            <button
+                onClick={() => formatHeading('h1')}
+                className="p-2 hover:bg-slate-200 rounded flex items-center gap-1"
+                title="Heading 1"
+            >
+                <Heading1 className="w-4 h-4" />
+            </button>
+            <button
+                onClick={() => formatHeading('h2')}
+                className="p-2 hover:bg-slate-200 rounded flex items-center gap-1"
+                title="Heading 2"
+            >
+                <Heading2 className="w-4 h-4" />
+            </button>
+
+            <div className="w-px h-6 bg-slate-300 mx-1"></div>
+
+            {/* Text Formatting */}
+            <button
+                onClick={() => formatText('bold')}
+                className={`p-2 hover:bg-slate-200 rounded ${isBold ? 'bg-blue-100' : ''}`}
+                title="Bold"
+            >
+                <Bold className="w-4 h-4" />
+            </button>
+            <button
+                onClick={() => formatText('italic')}
+                className={`p-2 hover:bg-slate-200 rounded ${isItalic ? 'bg-blue-100' : ''}`}
+                title="Italic"
+            >
+                <Italic className="w-4 h-4" />
+            </button>
+            <button
+                onClick={() => formatText('underline')}
+                className={`p-2 hover:bg-slate-200 rounded ${isUnderline ? 'bg-blue-100' : ''}`}
+                title="Underline"
+            >
+                <Underline className="w-4 h-4" />
+            </button>
+
+            <div className="w-px h-6 bg-slate-300 mx-1"></div>
+
+            {/* Alignment */}
+            <button
+                onClick={() => formatAlignment('left')}
+                className="p-2 hover:bg-slate-200 rounded"
+                title="Align Left"
+            >
+                <AlignLeft className="w-4 h-4" />
+            </button>
+            <button
+                onClick={() => formatAlignment('center')}
+                className="p-2 hover:bg-slate-200 rounded"
+                title="Align Center"
+            >
+                <AlignCenter className="w-4 h-4" />
+            </button>
+            <button
+                onClick={() => formatAlignment('right')}
+                className="p-2 hover:bg-slate-200 rounded"
+                title="Align Right"
+            >
+                <AlignRight className="w-4 h-4" />
+            </button>
+
+            <div className="w-px h-6 bg-slate-300 mx-1"></div>
+
+            {/* Text Color */}
+            <div className="flex items-center gap-2">
+                <label className="text-xs text-slate-600">Color:</label>
+                <input
+                    type="color"
+                    value={textColor}
+                    onChange={(e) => applyTextColor(e.target.value)}
+                    className="w-8 h-8 rounded cursor-pointer"
+                    title="Text Color"
+                />
+            </div>
+
+            {/* Preset Colors */}
+            <div className="flex items-center gap-1 ml-2">
+                {['#000000', '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'].map(color => (
+                    <button
+                        key={color}
+                        onClick={() => applyTextColor(color)}
+                        className="w-6 h-6 rounded border-2 border-slate-300 hover:border-slate-400"
+                        style={{ backgroundColor: color }}
+                        title={`Apply ${color}`}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+}
+
+// Plugin to load content into Lexical editor
+function LoadContentPlugin({ content }: { content: string }) {
+    const [editor] = useLexicalComposerContext();
+
+    useEffect(() => {
+        if (!content) return;
+
+        editor.update(() => {
+            try {
+                const editorState = editor.parseEditorState(content);
+                editor.setEditorState(editorState);
+            } catch (error) {
+                console.error('Failed to parse editor state:', error);
+                const root = editor.getEditorState()._nodeMap.get('root');
+                if (root) {
+                    root.clear();
+                    const paragraph = $createParagraphNode();
+                    root.append(paragraph);
+                }
+            }
+        });
+    }, [content, editor]);
+
+    return null;
+}
+
+// Plugin to focus the editor
+function AutoFocusPlugin() {
+    const [editor] = useLexicalComposerContext();
+
+    useEffect(() => {
+        editor.focus();
+    }, [editor]);
+
+    return null;
+}
+
 const SolicitationEditor = () => {
     // State Management
     const [documents, setDocuments] = useState<Document[]>([]);
     const [currentDoc, setCurrentDoc] = useState<Document | null>(null);
-    const [content, setContent] = useState('');
+    const [editorContent, setEditorContent] = useState<string>('');
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState('');
     const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
@@ -46,6 +319,8 @@ const SolicitationEditor = () => {
     const [isSaving, setIsSaving] = useState(false);
     const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
     const [currentUser, setCurrentUser] = useState<any>(null);
+    const [editorError, setEditorError] = useState<string | null>(null);
+    const [editorKey, setEditorKey] = useState(0);
 
     const userId = currentUser?.id;
     const userName = currentUser?.firstName;
@@ -54,11 +329,74 @@ const SolicitationEditor = () => {
     const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     
-    // Track loading states
     const loadedDocs = useRef<Set<string>>(new Set());
     const isJoiningDoc = useRef(false);
+    const lastContentRef = useRef<string>('');
 
-    console.log("comment", comments)
+    console.log("comment", comments);
+
+    // Lexical editor configuration
+    const initialConfig = {
+        namespace: 'SolicitationEditor',
+        theme,
+        nodes: [HeadingNode, QuoteNode, ListNode, ListItemNode],
+        onError: (error: Error) => {
+            console.error('Lexical error:', error);
+        },
+    };
+
+    // Handle editor changes with debouncing
+    const handleEditorChange = useCallback((editorState: LexicalEditorState) => {
+        editorState.read(() => {
+            const currentContent = JSON.stringify(editorState.toJSON());
+            
+            if (currentContent !== lastContentRef.current) {
+                lastContentRef.current = currentContent;
+                
+                try {
+                    documentContentSchema.parse(currentContent);
+                    setEditorError(null);
+                    
+                    if (socketRef.current && currentDoc && userId) {
+                        emitTypingStart(socketRef.current, currentDoc.id, userId, userName || 'Anonymous');
+
+                        if (typingTimeoutRef.current) {
+                            clearTimeout(typingTimeoutRef.current);
+                        }
+
+                        typingTimeoutRef.current = setTimeout(() => {
+                            emitTypingStop(socketRef.current!, currentDoc.id, userId);
+                        }, 1000);
+                    }
+
+                    setIsSaving(true);
+                    if (saveTimeoutRef.current) {
+                        clearTimeout(saveTimeoutRef.current);
+                    }
+
+                    saveTimeoutRef.current = setTimeout(() => {
+                        if (socketRef.current && currentDoc && userId) {
+                            emitEditDocument(socketRef.current, currentDoc.id, currentContent, userId);
+                        }
+                    }, 500);
+
+                } catch (error) {
+                    if (error instanceof z.ZodError) {
+                        setEditorError(error.errors[0].message);
+                    }
+                }
+            }
+        });
+    }, [currentDoc, userId, userName]);
+
+    const updateEditorContent = useCallback((newContent: string) => {
+        if (newContent !== lastContentRef.current) {
+            lastContentRef.current = newContent;
+            setEditorContent(newContent);
+            setEditorKey(prev => prev + 1);
+        }
+    }, []);
+
     // Initialize Socket Connection
     useEffect(() => {
         const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5004';
@@ -89,7 +427,6 @@ const SolicitationEditor = () => {
         };
     }, []);
 
-    // Load Documents on Mount (ONLY ONCE)
     useEffect(() => {
         getCurrentUser();
         loadDocuments();
@@ -110,15 +447,13 @@ const SolicitationEditor = () => {
 
         console.log(`🔄 Joining document: ${docId}`);
 
-        // Join document room
         joinDocumentRoom(socket, docId, currentUser.id, currentUser.firstName);
 
-        // Setup socket event handlers
         setupSocketHandlers(socket, currentDoc, currentUser, {
             onDocumentLoaded: (docContent) => {
                 console.log(`📄 Document loaded for ${docId}`);
                 if (!loadedDocs.current.has(docId)) {
-                    setContent(docContent);
+                    updateEditorContent(docContent);
                     loadedDocs.current.add(docId);
                     loadComments(docId);
                 }
@@ -127,7 +462,9 @@ const SolicitationEditor = () => {
 
             onDocumentUpdated: (newContent, editorId) => {
                 console.log(`📝 Document updated by ${editorId}`);
-                setContent(newContent);
+                if (editorId !== userId) {
+                    updateEditorContent(newContent);
+                }
             },
 
             onSaveSuccess: () => {
@@ -185,9 +522,8 @@ const SolicitationEditor = () => {
             leaveDocumentRoom(socket, docId, currentUser.id);
             isJoiningDoc.current = false;
         };
-    }, [currentDoc, currentUser]);
+    }, [currentDoc, currentUser, userId, updateEditorContent]);
 
-    // API Calls
     const loadDocuments = async () => {
         setIsLoading(true);
         try {
@@ -215,67 +551,28 @@ const SolicitationEditor = () => {
         }
     };
 
-    // Event Handlers
-    const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const newContent = e.target.value;
-        
-        // INSTANT UI UPDATE
-        setContent(newContent);
+    const handleAddComment = () => {
+        if (!newComment.trim() || !currentDoc || !socketRef.current || !userId || !userName) return;
 
-        // Emit typing indicator
-        if (socketRef.current && currentDoc && userId) {
-            emitTypingStart(socketRef.current, currentDoc.id, userId, userName || 'Anonymous');
-
-            if (typingTimeoutRef.current) {
-                clearTimeout(typingTimeoutRef.current);
-            }
-
-            typingTimeoutRef.current = setTimeout(() => {
-                emitTypingStop(socketRef.current!, currentDoc.id, userId);
-            }, 1000);
-        }
-
-        // Debounced socket emit
-        setIsSaving(true);
-        if (saveTimeoutRef.current) {
-            clearTimeout(saveTimeoutRef.current);
-        }
-
-        saveTimeoutRef.current = setTimeout(() => {
-            if (socketRef.current && currentDoc && userId) {
-                emitEditDocument(socketRef.current, currentDoc.id, newContent, userId);
-            }
-        }, 500);
+        console.log(`➕ Adding comment: ${newComment}`);
+        setNewComment('');
+        emitAddComment(socketRef.current, currentDoc.id, newComment, userId);
     };
-
-   const handleAddComment = () => {
-    if (!newComment.trim() || !currentDoc || !socketRef.current || !userId || !userName) return;
-
-    // ✅ REMOVED optimistic comment - let socket handle it
-    console.log(`➕ Adding comment: ${newComment}`);
-
-    // Clear input immediately for better UX
-    setNewComment('');
-
-    // Send to server - socket will broadcast and update UI
-    emitAddComment(socketRef.current, currentDoc.id, newComment, userId);
-};
 
     const handleDeleteComment = (commentId: string) => {
         if (!currentDoc || !socketRef.current || !userId) return;
 
         console.log(`🗑️ Deleting comment: ${commentId}`);
-
-        // Optimistically remove from UI
         setComments(prev => removeCommentOptimistically(prev, commentId));
-
-        // Send to server
         emitDeleteComment(socketRef.current, currentDoc.id, commentId, userId);
     };
 
     const handleSelectDocument = (doc: Document) => {
         console.log(`📑 Selecting document: ${doc.id}`);
         selectDocument(doc, setCurrentDoc, setComments, setShowComments, loadedDocs);
+        setEditorContent('');
+        lastContentRef.current = '';
+        setEditorKey(prev => prev + 1);
     };
 
     const handleCreateNewDocument = () => {
@@ -397,14 +694,41 @@ const SolicitationEditor = () => {
 
                         {/* Editor Area */}
                         <div className="flex-1 flex overflow-hidden">
-                            <div className="flex-1 p-8 overflow-y-auto">
-                                <textarea
-                                    value={content}
-                                    onChange={handleContentChange}
-                                    className="w-full min-h-full p-6 bg-white rounded-lg border-2 border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none resize-none font-mono text-sm transition-all"
-                                    placeholder="Start typing your document here..."
-                                    style={{ minHeight: '600px' }}
-                                />
+                            <div className="flex-1 flex flex-col">
+                                {/* Lexical Editor */}
+                                <div className="flex-1 overflow-y-auto">
+                                    {editorError && (
+                                        <div className="m-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                                            {editorError}
+                                        </div>
+                                    )}
+                                    <div className="bg-white h-full">
+                                        <LexicalComposer key={editorKey} initialConfig={initialConfig}>
+                                            <ToolbarPlugin />
+                                            <div className="relative">
+                                                <RichTextPlugin
+                                                    contentEditable={
+                                                        <ContentEditable 
+                                                            className="outline-none min-h-[calc(100vh-280px)] p-8 text-slate-900"
+                                                            style={{ caretColor: '#1e40af' }}
+                                                        />
+                                                    }
+                                                    placeholder={
+                                                        <div className="absolute top-8 left-8 text-slate-400 pointer-events-none">
+                                                            Start typing your document here...
+                                                        </div>
+                                                    }
+                                                    ErrorBoundary={LexicalErrorBoundary}
+                                                />
+                                            </div>
+                                            <HistoryPlugin />
+                                            <ListPlugin />
+                                            <OnChangePlugin onChange={handleEditorChange} />
+                                            <LoadContentPlugin content={editorContent} />
+                                            <AutoFocusPlugin />
+                                        </LexicalComposer>
+                                    </div>
+                                </div>
                             </div>
 
                             {/* Comments Panel */}
