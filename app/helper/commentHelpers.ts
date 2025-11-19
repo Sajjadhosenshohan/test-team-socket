@@ -1,11 +1,14 @@
-// helper/commentHelpers.ts
+// ============================================
+// FILE: helper/commentHelpers.ts - COMPLETE VERSION
+// ============================================
 import { Comment } from './socketHelpers';
 
-export const createTempComment = (content: string, userId: string, userName: string): Comment => {
+export const createTempComment = (content: string, userId: string, userName: string, docId: string): Comment => {
     return {
         id: `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         content,
         authorId: userId,
+        docId,
         author: {
             id: userId,
             name: userName,
@@ -28,7 +31,7 @@ export const removeCommentOptimistically = (comments: Comment[], commentId: stri
 
 export const updateCommentOnSync = (comments: Comment[], tempId: string, actualComment: Comment): Comment[] => {
     return comments.map(comment => 
-        comment.id === tempId ? actualComment : comment
+        comment.id === tempId ? { ...actualComment, author: comment.author } : comment
     );
 };
 
@@ -39,13 +42,6 @@ export const handleCommentAdded = (comments: Comment[], newComment: Comment): Co
         return comments;
     }
     
-    // Replace temp comment if exists, otherwise add new
-    const existingIndex = comments.findIndex(comment => comment.id === newComment.id);
-    if (existingIndex !== -1) {
-        const newComments = [...comments];
-        newComments[existingIndex] = newComment;
-        return newComments;
-    }
-    
+    // Add new comment at the beginning
     return [newComment, ...comments];
 };

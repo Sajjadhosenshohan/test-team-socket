@@ -65,7 +65,7 @@ export const getTeamDocs = async () => {
         });
 
         const result = await res.json();
-        // console.log("getTeamDocs", result)
+        console.log("getTeamDocs", result)
         if (res.ok) {
             return { success: true, data: result.result };
         }
@@ -98,8 +98,9 @@ export const getSolicitationDoc = async (docId: string) => {
 
         const result = await res.json();
 
+        console.log("result of getSolicitationDoc", result)
         if (res.ok) {
-            return { success: true, data: result.data };
+            return { success: true, data: result.result };
         }
 
         return { success: false, message: result.message };

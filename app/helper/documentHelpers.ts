@@ -1,4 +1,6 @@
-// helper/documentHelpers.ts
+// ============================================
+// FILE: helper/documentHelpers.ts - COMPLETE VERSION
+// ============================================
 import { Document } from './socketHelpers';
 
 export const selectDocument = (
@@ -39,3 +41,4 @@ export const createNewDocument = async (
         setShowNewDoc(false);
     }
 };
+

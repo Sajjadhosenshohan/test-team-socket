@@ -1,5 +1,7 @@
-// helper/dateHelpers.ts
-export const formatDate = (dateString: string): string => {
+// ============================================
+// FILE: helper/dateHelpers.ts - COMPLETE VERSION
+// ============================================
+export const formatDate = (dateString: string | Date): string => {
     const date = new Date(dateString);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
