@@ -98,7 +98,7 @@ export const getSolicitationDoc = async (docId: string) => {
 
         const result = await res.json();
 
-        console.log("result of getSolicitationDoc", result)
+        // console.log("result of getSolicitationDoc", result)
         if (res.ok) {
             return { success: true, data: result.result };
         }

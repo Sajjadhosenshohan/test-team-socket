@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Users, MessageSquare, FileText, X, Trash2, Download, Plus, Loader2, ChevronDown, ChevronRight, Save, AlertCircle } from 'lucide-react';
-import { io, Socket } from 'socket.io-client';
+import { Users, Download, Loader2, ChevronDown, ChevronRight, Check, AlertCircle } from 'lucide-react';
+import { io } from 'socket.io-client';
 
 // Section configuration matching your schema
 const SECTION_CONFIG = [
@@ -20,138 +20,53 @@ const SECTION_CONFIG = [
   { key: 'appendix', title: 'Appendix', icon: '📎', type: 'object' },
 ];
 
-// Rich Text Editor Component
-const RichTextEditor = ({ content, onChange, placeholder, readOnly = false }) => {
-  const editorRef = useRef(null);
-  const [isFocused, setIsFocused] = useState(false);
-
-  useEffect(() => {
-    if (editorRef.current && content !== undefined) {
-      const currentContent = editorRef.current.innerHTML;
-      const newContent = content || '';
-      if (currentContent !== newContent) {
-        editorRef.current.innerHTML = newContent;
-      }
-    }
-  }, [content]);
-
-  const handleInput = (e) => {
-    if (!readOnly) {
-      onChange(e.currentTarget.innerHTML);
-    }
-  };
-
-  const execCommand = (command, value = null) => {
-    document.execCommand(command, false, value);
-    editorRef.current?.focus();
-  };
-
-  return (
-    <div className="border rounded-lg overflow-hidden bg-white">
-      {!readOnly && (
-        <div className="flex items-center gap-1 p-2 border-b bg-slate-50 flex-wrap">
-          <button
-            type="button"
-            onClick={() => execCommand('bold')}
-            className="p-2 hover:bg-slate-200 rounded font-bold text-sm"
-            title="Bold"
-          >
-            B
-          </button>
-          <button
-            type="button"
-            onClick={() => execCommand('italic')}
-            className="p-2 hover:bg-slate-200 rounded italic text-sm"
-            title="Italic"
-          >
-            I
-          </button>
-          <button
-            type="button"
-            onClick={() => execCommand('underline')}
-            className="p-2 hover:bg-slate-200 rounded underline text-sm"
-            title="Underline"
-          >
-            U
-          </button>
-          <div className="w-px h-6 bg-slate-300 mx-1"></div>
-          <button
-            type="button"
-            onClick={() => execCommand('formatBlock', '<h2>')}
-            className="px-2 py-1 hover:bg-slate-200 rounded text-sm"
-            title="Heading"
-          >
-            H2
-          </button>
-          <button
-            type="button"
-            onClick={() => execCommand('formatBlock', '<h3>')}
-            className="px-2 py-1 hover:bg-slate-200 rounded text-sm"
-            title="Heading 3"
-          >
-            H3
-          </button>
-          <div className="w-px h-6 bg-slate-300 mx-1"></div>
-          <button
-            type="button"
-            onClick={() => execCommand('insertUnorderedList')}
-            className="px-2 py-1 hover:bg-slate-200 rounded text-sm"
-            title="Bullet List"
-          >
-            • List
-          </button>
-          <button
-            type="button"
-            onClick={() => execCommand('insertOrderedList')}
-            className="px-2 py-1 hover:bg-slate-200 rounded text-sm"
-            title="Numbered List"
-          >
-            1. List
-          </button>
-        </div>
-      )}
-      <div
-        ref={editorRef}
-        contentEditable={!readOnly}
-        onInput={handleInput}
-        onFocus={() => setIsFocused(true)}
-        onBlur={() => setIsFocused(false)}
-        className={`p-4 min-h-[200px] outline-none ${
-          isFocused ? 'ring-2 ring-blue-500' : ''
-        } ${readOnly ? 'bg-slate-50' : 'bg-white'}`}
-        style={{ caretColor: '#1e40af' }}
-        suppressContentEditableWarning
-      />
-      {!content && !readOnly && (
-        <div className="absolute top-14 left-4 text-slate-400 pointer-events-none">
-          {placeholder}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// JSON Editor for complex objects
+// Enhanced JSON Editor with better error handling
 const JsonEditor = ({ content, onChange, readOnly = false }) => {
   const [jsonText, setJsonText] = useState('');
   const [error, setError] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
-    if (content !== undefined) {
-      setJsonText(JSON.stringify(content, null, 2));
+    if (content !== undefined && !isEditing) {
+      try {
+        const formatted = JSON.stringify(content, null, 2);
+        setJsonText(formatted);
+      } catch (err) {
+        console.error('Error formatting JSON:', err);
+        setJsonText('{}');
+      }
     }
-  }, [content]);
+  }, [content, isEditing]);
 
   const handleChange = (e) => {
     const newValue = e.target.value;
     setJsonText(newValue);
+    setIsEditing(true);
     
     try {
       const parsed = JSON.parse(newValue);
       setError('');
       onChange(parsed);
     } catch (err) {
-      setError('Invalid JSON format');
+      setError('Invalid JSON format - will save when valid');
+    }
+  };
+
+  const handleBlur = () => {
+    setIsEditing(false);
+    if (error) {
+      // Try to parse one more time
+      try {
+        const parsed = JSON.parse(jsonText);
+        setError('');
+        onChange(parsed);
+      } catch (err) {
+        // Revert to original content
+        if (content !== undefined) {
+          setJsonText(JSON.stringify(content, null, 2));
+          setError('');
+        }
+      }
     }
   };
 
@@ -160,15 +75,16 @@ const JsonEditor = ({ content, onChange, readOnly = false }) => {
       <textarea
         value={jsonText}
         onChange={handleChange}
+        onBlur={handleBlur}
         readOnly={readOnly}
         className={`w-full h-64 p-4 font-mono text-sm border rounded-lg ${
           readOnly ? 'bg-slate-50' : 'bg-white'
-        } ${error ? 'border-red-500' : 'border-slate-300'}`}
+        } ${error ? 'border-red-300 bg-red-50' : 'border-slate-300'}`}
         placeholder='{"key": "value"}'
       />
       {error && (
-        <div className="flex items-center gap-2 text-sm text-red-600">
-          <AlertCircle className="w-4 h-4" />
+        <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 p-2 rounded">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
           {error}
         </div>
       )}
@@ -176,7 +92,7 @@ const JsonEditor = ({ content, onChange, readOnly = false }) => {
   );
 };
 
-// Array Editor for lists
+// Enhanced Array Editor with better UX
 const ArrayEditor = ({ items = [], onChange, readOnly = false }) => {
   const addItem = () => {
     onChange([...items, '']);
@@ -193,24 +109,27 @@ const ArrayEditor = ({ items = [], onChange, readOnly = false }) => {
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {items.map((item, index) => (
         <div key={index} className="flex gap-2">
-          <input
-            type="text"
+          <div className="flex-shrink-0 w-8 h-10 flex items-center justify-center bg-slate-100 rounded text-sm font-medium text-slate-600">
+            {index + 1}
+          </div>
+          <textarea
             value={item}
             onChange={(e) => updateItem(index, e.target.value)}
             readOnly={readOnly}
-            className="flex-1 px-3 py-2 border rounded-lg bg-white"
+            className="flex-1 px-3 py-2 border rounded-lg bg-white resize-none"
             placeholder={`Item ${index + 1}...`}
+            rows={3}
           />
           {!readOnly && (
             <button
               type="button"
               onClick={() => removeItem(index)}
-              className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+              className="flex-shrink-0 w-10 h-10 flex items-center justify-center text-red-600 hover:bg-red-50 rounded-lg transition-colors"
             >
-              <Trash2 className="w-4 h-4" />
+              <X className="w-5 h-5" />
             </button>
           )}
         </div>
@@ -219,11 +138,59 @@ const ArrayEditor = ({ items = [], onChange, readOnly = false }) => {
         <button
           type="button"
           onClick={addItem}
-          className="w-full p-2 border-2 border-dashed border-slate-300 rounded-lg text-slate-600 hover:border-blue-500 hover:text-blue-600"
+          className="w-full p-3 border-2 border-dashed border-slate-300 rounded-lg text-slate-600 hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all font-medium"
         >
-          <Plus className="w-4 h-4 inline mr-2" />
-          Add Item
+          + Add Item
         </button>
+      )}
+    </div>
+  );
+};
+
+// Enhanced Rich Text Editor
+const RichTextEditor = ({ content, onChange, placeholder, readOnly = false }) => {
+  const editorRef = useRef(null);
+  const [isFocused, setIsFocused] = useState(false);
+  const isUpdating = useRef(false);
+
+  useEffect(() => {
+    if (editorRef.current && content !== undefined && !isUpdating.current) {
+      const currentContent = editorRef.current.innerHTML;
+      const newContent = content || '';
+      if (currentContent !== newContent) {
+        editorRef.current.innerHTML = newContent;
+      }
+    }
+  }, [content]);
+
+  const handleInput = (e) => {
+    if (!readOnly) {
+      isUpdating.current = true;
+      onChange(e.currentTarget.innerHTML);
+      setTimeout(() => {
+        isUpdating.current = false;
+      }, 100);
+    }
+  };
+
+  return (
+    <div className="border rounded-lg overflow-hidden bg-white">
+      <div
+        ref={editorRef}
+        contentEditable={!readOnly}
+        onInput={handleInput}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+        className={`p-4 min-h-[300px] outline-none ${
+          isFocused ? 'ring-2 ring-indigo-500' : ''
+        } ${readOnly ? 'bg-slate-50' : 'bg-white'}`}
+        style={{ caretColor: '#4f46e5' }}
+        suppressContentEditableWarning
+      />
+      {!content && !readOnly && !isFocused && (
+        <div className="absolute top-4 left-4 text-slate-400 pointer-events-none">
+          {placeholder}
+        </div>
       )}
     </div>
   );
@@ -270,7 +237,7 @@ const SolicitationDocEditor = ({ docId }) => {
     const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5004';
 
     socketRef.current = io(SOCKET_URL, {
-      transports: ['websocket'],
+      transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
@@ -302,7 +269,7 @@ const SolicitationDocEditor = ({ docId }) => {
         socketRef.current.disconnect();
       }
     };
-  }, []);
+  }, [currentUser, document]);
 
   // Load document and setup socket handlers
   useEffect(() => {
@@ -328,7 +295,7 @@ const SolicitationDocEditor = ({ docId }) => {
           throw new Error(result.message || 'Failed to load document');
         }
 
-        console.log('Loaded document:', result.data?.doc);
+        console.log('📄 Loaded document:', result.data?.doc);
         setDocument(result.data?.doc);
         setIsLoading(false);
 
@@ -337,13 +304,13 @@ const SolicitationDocEditor = ({ docId }) => {
           hasJoinedRef.current = true;
           
           socketRef.current.emit('join-document', {
-            docId: result.data.id,
+            docId: result.data?.doc?.id,
             userId: userResult.result.id,
             userName: userResult.result.firstName || 'Anonymous'
           });
 
           // Setup socket listeners
-          setupSocketListeners(result.data, userResult.result);
+          setupSocketListeners(result.data?.doc, userResult.result);
         }
 
       } catch (err) {
@@ -376,14 +343,20 @@ const SolicitationDocEditor = ({ docId }) => {
     socketRef.current.on('document-loaded', (data) => {
       console.log('📄 Document loaded from socket');
       if (data.content) {
-        setDocument(prev => ({ ...prev, content: data.content }));
+        setDocument(prev => ({ 
+          ...prev, 
+          content: typeof data.content === 'string' ? JSON.parse(data.content) : data.content 
+        }));
       }
     });
 
     socketRef.current.on('document-updated', (data) => {
-      console.log('📝 Document updated from socket');
+      console.log('📝 Document updated from socket', data);
       if (data.userId !== user.id && data.content) {
-        setDocument(prev => ({ ...prev, content: data.content }));
+        setDocument(prev => ({ 
+          ...prev, 
+          content: typeof data.content === 'string' ? JSON.parse(data.content) : data.content 
+        }));
       }
     });
 
@@ -394,7 +367,11 @@ const SolicitationDocEditor = ({ docId }) => {
 
     socketRef.current.on('user-joined', (data) => {
       console.log('👋 User joined:', data.userName);
-      setActiveUsers(prev => [...prev, { userId: data.userId, userName: data.userName }]);
+      setActiveUsers(prev => {
+        const exists = prev.find(u => u.userId === data.userId);
+        if (exists) return prev;
+        return [...prev, { userId: data.userId, userName: data.userName }];
+      });
     });
 
     socketRef.current.on('user-left', (data) => {
@@ -432,9 +409,14 @@ const SolicitationDocEditor = ({ docId }) => {
   };
 
   const handleSectionChange = useCallback((sectionKey, newValue) => {
-    if (!document || !currentUser || !socketRef.current) return;
+    if (!document || !currentUser || !socketRef.current) {
+      console.warn('Cannot save: missing document, user, or socket connection');
+      return;
+    }
 
-    // Update local state immediately
+    console.log('📝 Section change:', sectionKey, typeof newValue);
+
+    // Update local state immediately for responsive UI
     setDocument(prev => ({
       ...prev,
       content: {
@@ -443,25 +425,30 @@ const SolicitationDocEditor = ({ docId }) => {
       }
     }));
 
-    // Debounced save to socket
-    setIsSaving(true);
+    // Clear existing timeout
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
 
+    // Set saving state
+    setIsSaving(true);
+
+    // Debounced save to socket
     saveTimeoutRef.current = setTimeout(() => {
       const updatedContent = {
         ...document.content,
         [sectionKey]: newValue
       };
 
-      console.log('💾 Emitting document update:', sectionKey);
+      console.log('💾 Emitting document update for section:', sectionKey);
+      console.log('📦 Updated content:', updatedContent);
+
       socketRef.current.emit('edit-document', {
         docId: document.id,
         content: updatedContent,
         userId: currentUser.id
       });
-    }, 1000);
+    }, 1500); // Increased debounce time for better performance
   }, [document, currentUser]);
 
   const formatDate = (dateString) => {
@@ -481,36 +468,18 @@ const SolicitationDocEditor = ({ docId }) => {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
+          <Loader2 className="w-12 h-12 animate-spin text-indigo-600 mx-auto mb-4" />
           <p className="text-slate-600">Loading document...</p>
         </div>
       </div>
     );
   }
 
-  // if (error) {
-  //   return (
-  //     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
-  //       <div className="text-center max-w-md">
-  //         <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-  //         <h2 className="text-2xl font-bold text-slate-900 mb-2">Error Loading Document</h2>
-  //         <p className="text-slate-600 mb-4">{error}</p>
-  //         <button
-  //           onClick={() => window.location.reload()}
-  //           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-  //         >
-  //           Retry
-  //         </button>
-  //       </div>
-  //     </div>
-  //   );
-  // }
-
   if (!document) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
         <div className="text-center">
-          <FileText className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+          <AlertCircle className="w-16 h-16 text-slate-300 mx-auto mb-4" />
           <p className="text-slate-600">Document not found</p>
         </div>
       </div>
@@ -531,18 +500,24 @@ const SolicitationDocEditor = ({ docId }) => {
                 Last edited {formatDate(document.updatedAt)}
               </p>
               {isSaving && (
-                <span className="text-xs text-blue-600 flex items-center gap-1">
+                <span className="text-xs text-indigo-600 flex items-center gap-1">
                   <Loader2 className="w-3 h-3 animate-spin" />
                   Saving...
                 </span>
               )}
+              {!isSaving && (
+                <span className="text-xs text-emerald-600 flex items-center gap-1">
+                  <Check className="w-3 h-3" />
+                  Saved
+                </span>
+              )}
               <span className={`text-xs flex items-center gap-1 ${
-                connectionStatus === 'connected' ? 'text-green-600' : 
-                connectionStatus === 'connecting' ? 'text-yellow-600' : 'text-red-600'
+                connectionStatus === 'connected' ? 'text-emerald-600' : 
+                connectionStatus === 'connecting' ? 'text-amber-600' : 'text-red-600'
               }`}>
                 <div className={`w-2 h-2 rounded-full ${
-                  connectionStatus === 'connected' ? 'bg-green-500 animate-pulse' : 
-                  connectionStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
+                  connectionStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 
+                  connectionStatus === 'connecting' ? 'bg-amber-500 animate-pulse' : 'bg-red-500'
                 }`}></div>
                 {connectionStatus}
               </span>
@@ -553,10 +528,10 @@ const SolicitationDocEditor = ({ docId }) => {
             <div className="flex items-center gap-2">
               <Users className="w-5 h-5 text-slate-500" />
               <span className="text-sm font-medium text-slate-700">
-                {activeUsers.length} active
+                {activeUsers.length + 1} active
               </span>
             </div>
-            <button className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors">
+            <button className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
               <Download className="w-5 h-5" />
               <span className="font-medium">Export</span>
             </button>
@@ -569,7 +544,18 @@ const SolicitationDocEditor = ({ docId }) => {
         <div className="space-y-4">
           {SECTION_CONFIG.map(({ key, title, icon, type }) => {
             const isExpanded = expandedSections.has(key);
-            const hasContent = document.content?.[key] !== undefined && document.content?.[key] !== null && document.content?.[key] !== '';
+            const sectionData = document.content?.[key];
+            
+            let hasContent = false;
+            if (sectionData !== undefined && sectionData !== null) {
+              if (Array.isArray(sectionData)) {
+                hasContent = sectionData.length > 0;
+              } else if (typeof sectionData === 'object') {
+                hasContent = Object.keys(sectionData).length > 0;
+              } else {
+                hasContent = sectionData !== '';
+              }
+            }
             
             return (
               <div key={key} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
@@ -588,7 +574,7 @@ const SolicitationDocEditor = ({ docId }) => {
                     <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
                   </div>
                   {hasContent && (
-                    <span className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded-full font-medium">
+                    <span className="text-xs bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full font-medium">
                       ✓ Content Added
                     </span>
                   )}
@@ -598,7 +584,7 @@ const SolicitationDocEditor = ({ docId }) => {
                   <div className="p-6 border-t border-slate-200 bg-slate-50">
                     <SectionEditor
                       sectionKey={key}
-                      sectionData={document.content?.[key]}
+                      sectionData={sectionData}
                       sectionType={type}
                       onChange={(newValue) => handleSectionChange(key, newValue)}
                     />
