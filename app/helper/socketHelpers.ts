@@ -140,13 +140,13 @@ export const leaveDocumentRoom = (socket: Socket, docId: string, userId: string)
     socket.emit('leave-document', { docId, userId });
 };
 
-export const emitEditDocument = (socket: Socket, docId: string, content: string, userId: string) => {
-    socket.emit('edit-document', {
-        docId,
-        content,
-        userId
-    });
-};
+// export const emitEditDocument = (socket: Socket, docId: string, content: string, userId: string) => {
+//     socket.emit('edit-document', {
+//         docId,
+//         content,
+//         userId
+//     });
+// };
 
 export const emitAddComment = (socket: Socket, docId: string, content: string, userId: string) => {
     socket.emit('add-comment', {
@@ -178,4 +178,54 @@ export const emitTypingStop = (socket: Socket, docId: string, userId: string) =>
         docId,
         userId
     });
+};
+
+export const emitEditDocumentField = (
+  socket: Socket,
+  docId: string,
+  path: string[],
+  value: any,
+  userId: string
+) => {
+  socket.emit('edit-document-field', { docId, path, value, userId });
+};
+
+// Add new function for manual saving
+export const emitSaveDocument = (
+  socket: Socket | null,
+  docId: string,
+  content: any,
+  userId: string
+) => {
+  if (!socket) {
+    console.error('❌ Socket not available for saving document');
+    return;
+  }
+
+  console.log('💾 Emitting manual save document:', docId);
+  socket.emit('save-document', {
+    docId,
+    content,
+    userId
+  });
+};
+
+// Update existing emitEditDocument to remove auto-save
+export const emitEditDocument = (
+  socket: Socket | null,
+  docId: string,
+  content: any,
+  userId: string
+) => {
+  if (!socket) {
+    console.error('❌ Socket not available for editing document');
+    return;
+  }
+
+  console.log('📝 Emitting document edit (real-time only):', docId);
+  socket.emit('edit-document', {
+    docId,
+    content,
+    userId
+  });
 };

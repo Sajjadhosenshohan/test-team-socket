@@ -55,7 +55,7 @@ export const getTeamDocs = async () => {
             return { success: false, message: "Not authenticated" };
         }
 
-        const res = await fetch(`${BASE_API}/solicitation`, {
+        const res = await fetch(`${BASE_API}/solicitation/teams-solicitation-docs`, {
             headers: {
                 Authorization: `Bearer ${token}`,
             },
@@ -65,9 +65,9 @@ export const getTeamDocs = async () => {
         });
 
         const result = await res.json();
-        // console.log("getTeamDocs", result)
+        console.log("getTeamDocs", result)
         if (res.ok) {
-            return { success: true, data: result.result };
+            return result
         }
 
         return { success: false, message: result.message };
@@ -99,7 +99,7 @@ export const getSolicitationDoc = async (docId: string) => {
         const result = await res.json();
 
         if (res.ok) {
-            return { success: true, data: result.data };
+            return result
         }
 
         return { success: false, message: result.message };
